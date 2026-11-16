@@ -1,52 +1,21 @@
 /**
- * Seed de datos base (idempotente):
- * - Catálogo de permisos.
- * - Planes SaaS iniciales.
+ * Seed de datos base (idempotente) para desarrollo:
+ * - Catálogo de permisos y planes SaaS iniciales (la API también los asegura al iniciar).
  * - Administrador de plataforma (solo si se definen SEED_ADMIN_EMAIL y SEED_ADMIN_PASSWORD).
  * No crea datos de negocio ficticios.
  */
 import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { PERMISSIONS } from '../src/common/permissions';
+import { DEFAULT_PLANS } from '../src/modules/companies/permissions-sync.service';
 
 const prisma = new PrismaClient();
-
-const PLANS = [
-  {
-    code: 'basico',
-    name: 'Básico',
-    description: 'Para profesionales y emprendimientos',
-    priceMonthly: 0,
-    maxUsers: 2,
-    maxPointsOfSale: 1,
-    maxInvoicesPerMonth: 100,
-  },
-  {
-    code: 'profesional',
-    name: 'Profesional',
-    description: 'Para pymes con equipo de trabajo',
-    priceMonthly: 0,
-    maxUsers: 10,
-    maxPointsOfSale: 5,
-    maxInvoicesPerMonth: 2000,
-  },
-  {
-    code: 'empresa',
-    name: 'Empresa',
-    description: 'Sin límites operativos',
-    priceMonthly: 0,
-    maxUsers: null,
-    maxPointsOfSale: null,
-    maxInvoicesPerMonth: null,
-  },
-];
 
 async function main() {
   for (const p of Object.values(PERMISSIONS)) {
     await prisma.permission.upsert({ where: { code: p.code }, update: p, create: p });
   }
-  for (const plan of PLANS) {
-    // Los precios se administran desde el panel de plataforma; el seed no los sobrescribe.
+  for (const plan of DEFAULT_PLANS) {
     await prisma.plan.upsert({ where: { code: plan.code }, update: {}, create: plan });
   }
 

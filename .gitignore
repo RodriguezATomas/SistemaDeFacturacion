@@ -19,7 +19,8 @@ coverage/
 secrets/
 
 # Almacenamiento local
-storage/
+/storage/
+apps/api/storage/
 backups/
 
 # Playwright

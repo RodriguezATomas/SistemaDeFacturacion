@@ -2,6 +2,13 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { PERMISSIONS, SYSTEM_ROLE_TEMPLATES } from '../../common/permissions';
 import { PrismaService } from '../../prisma/prisma.service';
 
+/** Planes SaaS iniciales (precio y límites editables luego desde el panel de plataforma). */
+export const DEFAULT_PLANS = [
+  { code: 'basico', name: 'Básico', description: 'Para profesionales y emprendimientos', maxUsers: 2, maxPointsOfSale: 1, maxInvoicesPerMonth: 100 },
+  { code: 'profesional', name: 'Profesional', description: 'Para pymes con equipo de trabajo', maxUsers: 10, maxPointsOfSale: 5, maxInvoicesPerMonth: 2000 },
+  { code: 'empresa', name: 'Empresa', description: 'Sin límites operativos', maxUsers: null, maxPointsOfSale: null, maxInvoicesPerMonth: null },
+];
+
 /**
  * Mantiene sincronizado el catálogo de permisos con la base al iniciar, y asigna los permisos
  * nuevos a los roles de sistema existentes (Propietario/Administrador reciben todos).
@@ -44,5 +51,13 @@ export class PermissionsSyncService implements OnApplicationBootstrap {
       }
     }
     this.logger.log(`Catálogo de permisos sincronizado (${permissions.length})`);
+    await this.ensureDefaultPlans();
+  }
+
+  /** Crea los planes iniciales si no existen (no modifica planes ya administrados desde la plataforma). */
+  private async ensureDefaultPlans(): Promise<void> {
+    for (const plan of DEFAULT_PLANS) {
+      await this.prisma.plan.upsert({ where: { code: plan.code }, update: {}, create: plan });
+    }
   }
 }
