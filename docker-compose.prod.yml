@@ -1,0 +1,24 @@
+# Overrides de producción: sin puertos expuestos de infraestructura, sin Mailpit
+# (configurar SMTP real) y con políticas de reinicio. Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile app up -d --build
+services:
+  postgres:
+    ports: !reset []
+  s3:
+    ports: !reset []
+  mailpit:
+    profiles: ["dev-only"]
+  api:
+    environment:
+      SMTP_HOST: ${SMTP_HOST:?Definir SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:?Definir MAIL_FROM}
+      ARCA_PRODUCTION_ENABLED: ${ARCA_PRODUCTION_ENABLED:-false}
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      s3:
+        condition: service_started

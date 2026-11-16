@@ -1,0 +1,15 @@
+# Nunca copiar dependencias locales, builds ni secretos a las imágenes
+**/node_modules
+**/dist
+**/coverage
+**/.env
+**/.env.*
+!**/.env.example
+storage
+apps/api/storage
+backups
+e2e/test-results
+e2e/playwright-report
+.git
+.claude
+*.log
