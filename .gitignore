@@ -1,0 +1,37 @@
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Entorno y secretos (NUNCA versionar)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+
+# Almacenamiento local
+storage/
+backups/
+
+# Playwright
+e2e/test-results/
+e2e/playwright-report/
+e2e/.auth/
+
+# Logs / SO / IDE
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/

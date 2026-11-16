@@ -1,0 +1,708 @@
+// Sistema Integral de Gestión y Facturación — modelo de datos.
+// Multi-tenancy: toda entidad de negocio lleva `companyId` y se accede siempre filtrando por él
+// (ver docs/MULTITENANCY.md). En instalaciones privadas la base es exclusiva de una empresa,
+// pero el modelo es el mismo.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────── Identidad y acceso ───────────────────────────────
+
+model User {
+  id               String    @id @default(uuid()) @db.Uuid
+  email            String    @unique
+  passwordHash     String?
+  firstName        String
+  lastName         String
+  isPlatformAdmin  Boolean   @default(false)
+  isActive         Boolean   @default(true)
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  lastLoginAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  memberships    CompanyUser[]
+  refreshTokens  RefreshToken[]
+  passwordTokens PasswordToken[]
+  auditLogs      AuditLog[]
+
+  @@map("users")
+}
+
+enum CompanyUserStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+model CompanyUser {
+  id        String            @id @default(uuid()) @db.Uuid
+  companyId String            @db.Uuid
+  userId    String            @db.Uuid
+  roleId    String            @db.Uuid
+  status    CompanyUserStatus @default(ACTIVE)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    Role    @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, userId])
+  @@index([userId])
+  @@map("company_users")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  name        String
+  description String?
+  // Roles de sistema (Propietario, Administrador, ...) no pueden eliminarse.
+  isSystem    Boolean  @default(false)
+  systemKey   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  members     CompanyUser[]
+
+  @@unique([companyId, name])
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(uuid()) @db.Uuid
+  code        String @unique
+  module      String
+  description String
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  // Familia de rotación: si se reutiliza un token ya rotado se revoca la familia completa.
+  familyId   String    @db.Uuid
+  tokenHash  String    @unique
+  companyId  String?   @db.Uuid
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String?   @db.Uuid
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+enum PasswordTokenPurpose {
+  RESET
+  INVITE
+}
+
+model PasswordToken {
+  id        String               @id @default(uuid()) @db.Uuid
+  userId    String               @db.Uuid
+  tokenHash String               @unique
+  purpose   PasswordTokenPurpose
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime             @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_tokens")
+}
+
+// ─────────────────────────────── Empresas y suscripciones ───────────────────────────────
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum TaxCondition {
+  RESPONSABLE_INSCRIPTO
+  MONOTRIBUTO
+  EXENTO
+}
+
+model Company {
+  id                String        @id @default(uuid()) @db.Uuid
+  legalName         String
+  tradeName         String?
+  cuit              String
+  taxCondition      TaxCondition
+  grossIncomeNumber String?
+  activityStartDate DateTime?     @db.Date
+  address           String?
+  city              String?
+  province          String?
+  postalCode        String?
+  phone             String?
+  email             String?
+  status            CompanyStatus @default(ACTIVE)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+
+  settings          CompanySettings?
+  subscription      Subscription?
+  members           CompanyUser[]
+  roles             Role[]
+  auditLogs         AuditLog[]
+  customers         Customer[]
+  suppliers         Supplier[]
+  categories        ProductCategory[]
+  products          Product[]
+  priceLists        PriceList[]
+  pointsOfSale      PointOfSale[]
+  fiscalCredentials FiscalCredential[]
+  invoices          Invoice[]
+
+  // En SaaS una misma CUIT no puede registrarse dos veces.
+  @@unique([cuit])
+  @@map("companies")
+}
+
+enum ArcaEnvironment {
+  HOMOLOGATION
+  PRODUCTION
+}
+
+model CompanySettings {
+  id                 String          @id @default(uuid()) @db.Uuid
+  companyId          String          @unique @db.Uuid
+  arcaEnvironment    ArcaEnvironment @default(HOMOLOGATION)
+  defaultCurrency    String          @default("PES")
+  defaultPriceListId String?         @db.Uuid
+  invoiceFooter      String?
+  logoStorageKey     String?
+  updatedAt          DateTime        @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("company_settings")
+}
+
+model Plan {
+  id                  String   @id @default(uuid()) @db.Uuid
+  code                String   @unique
+  name                String
+  description         String?
+  priceMonthly        Decimal  @default(0) @db.Decimal(14, 2)
+  // null = sin límite
+  maxUsers            Int?
+  maxPointsOfSale     Int?
+  maxInvoicesPerMonth Int?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+model Subscription {
+  id               String             @id @default(uuid()) @db.Uuid
+  companyId        String             @unique @db.Uuid
+  planId           String             @db.Uuid
+  status           SubscriptionStatus
+  trialEndsAt      DateTime?
+  currentPeriodEnd DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@map("subscriptions")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String?  @db.Uuid
+  userId    String?  @db.Uuid
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([companyId, entity, entityId])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────── Gestión comercial ───────────────────────────────
+
+enum DocumentType {
+  CUIT
+  CUIL
+  DNI
+  CDI
+  PASAPORTE
+  SIN_IDENTIFICAR
+}
+
+// Condición frente al IVA del receptor (catálogo FEParamGetCondicionIvaReceptor de ARCA).
+enum VatCondition {
+  RESPONSABLE_INSCRIPTO
+  EXENTO
+  CONSUMIDOR_FINAL
+  MONOTRIBUTO
+  NO_CATEGORIZADO
+  PROVEEDOR_EXTERIOR
+  CLIENTE_EXTERIOR
+  LIBERADO_LEY_19640
+  MONOTRIBUTO_SOCIAL
+  NO_ALCANZADO
+  MONOTRIBUTO_TRABAJADOR_PROMOVIDO
+}
+
+model Customer {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @db.Uuid
+  name           String
+  documentType   DocumentType
+  documentNumber String
+  vatCondition   VatCondition
+  email          String?
+  phone          String?
+  address        String?
+  city           String?
+  province       String?
+  postalCode     String?
+  notes          String?
+  priceListId    String?      @db.Uuid
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  priceList PriceList? @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  invoices  Invoice[]
+
+  @@index([companyId, name])
+  @@index([companyId, documentNumber])
+  @@map("customers")
+}
+
+model Supplier {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @db.Uuid
+  name           String
+  documentType   DocumentType
+  documentNumber String
+  vatCondition   VatCondition
+  email          String?
+  phone          String?
+  address        String?
+  city           String?
+  province       String?
+  postalCode     String?
+  contactName    String?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, name])
+  @@map("suppliers")
+}
+
+model ProductCategory {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @db.Uuid
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@index([companyId, name])
+  @@map("product_categories")
+}
+
+enum ProductType {
+  PRODUCT
+  SERVICE
+}
+
+// Tratamiento de IVA del ítem.
+enum VatTreatment {
+  GRAVADO
+  EXENTO
+  NO_GRAVADO
+}
+
+model Product {
+  id           String       @id @default(uuid()) @db.Uuid
+  companyId    String       @db.Uuid
+  type         ProductType
+  sku          String?
+  name         String
+  description  String?
+  unit         String       @default("unidad")
+  // Precio de lista neto de IVA.
+  price        Decimal      @db.Decimal(16, 4)
+  vatTreatment VatTreatment @default(GRAVADO)
+  // Alícuota en porcentaje (0, 2.5, 5, 10.5, 21, 27). Solo aplica si vatTreatment = GRAVADO.
+  vatRate      Decimal      @default(21) @db.Decimal(5, 2)
+  categoryId   String?      @db.Uuid
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category       ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  priceListItems PriceListItem[]
+  invoiceItems   InvoiceItem[]
+
+  @@index([companyId, name])
+  @@index([companyId, sku])
+  @@map("products")
+}
+
+model PriceList {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @db.Uuid
+  name              String
+  description       String?
+  // Ajuste porcentual sobre el precio base para productos sin precio específico (+10 = 10% más caro).
+  adjustmentPercent Decimal   @default(0) @db.Decimal(7, 2)
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  company   Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items     PriceListItem[]
+  customers Customer[]
+
+  @@index([companyId, name])
+  @@map("price_lists")
+}
+
+model PriceListItem {
+  id          String  @id @default(uuid()) @db.Uuid
+  priceListId String  @db.Uuid
+  productId   String  @db.Uuid
+  price       Decimal @db.Decimal(16, 4)
+
+  priceList PriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([priceListId, productId])
+  @@map("price_list_items")
+}
+
+// ─────────────────────────────── Facturación y ARCA ───────────────────────────────
+
+enum ArcaService {
+  WSFE
+  WSFEX
+}
+
+model PointOfSale {
+  id        String      @id @default(uuid()) @db.Uuid
+  companyId String      @db.Uuid
+  number    Int
+  name      String
+  service   ArcaService @default(WSFE)
+  address   String?
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoices Invoice[]
+  locks    EmissionLock[]
+
+  @@unique([companyId, number])
+  @@map("points_of_sale")
+}
+
+// Certificado digital y clave privada por empresa, CUIT y ambiente. Se almacenan cifrados (AES-256-GCM).
+model FiscalCredential {
+  id                 String          @id @default(uuid()) @db.Uuid
+  companyId          String          @db.Uuid
+  environment        ArcaEnvironment
+  cuit               String
+  certificateEnc     String
+  privateKeyEnc      String
+  certificateSubject String?
+  certificateSerial  String?
+  validFrom          DateTime?
+  validTo            DateTime?
+  isActive           Boolean         @default(true)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, environment])
+  @@map("fiscal_credentials")
+}
+
+// Ticket de acceso (TA) de WSAA cacheado: un TA por CUIT, servicio y ambiente mientras esté vigente.
+model ArcaAccessTicket {
+  id          String          @id @default(uuid()) @db.Uuid
+  companyId   String          @db.Uuid
+  environment ArcaEnvironment
+  service     String
+  cuit        String
+  tokenEnc    String
+  signEnc     String
+  generatedAt DateTime
+  expiresAt   DateTime
+  createdAt   DateTime        @default(now())
+
+  @@unique([companyId, environment, service])
+  @@map("arca_access_tickets")
+}
+
+// Registro completo de solicitudes/respuestas a ARCA para trazabilidad y auditoría.
+model ArcaRequestLog {
+  id           String          @id @default(uuid()) @db.Uuid
+  companyId    String          @db.Uuid
+  environment  ArcaEnvironment
+  service      String
+  operation    String
+  invoiceId    String?         @db.Uuid
+  requestXml   String
+  responseXml  String?
+  httpStatus   Int?
+  success      Boolean
+  errorMessage String?
+  durationMs   Int
+  createdAt    DateTime        @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([invoiceId])
+  @@map("arca_request_logs")
+}
+
+// Lease de emisión por punto de venta y tipo de comprobante: garantiza numeración correlativa
+// sin carreras entre emisiones concurrentes.
+model EmissionLock {
+  id            String   @id @default(uuid()) @db.Uuid
+  pointOfSaleId String   @db.Uuid
+  voucherType   Int
+  lockedUntil   DateTime
+  holder        String?
+
+  pointOfSale PointOfSale @relation(fields: [pointOfSaleId], references: [id], onDelete: Cascade)
+
+  @@unique([pointOfSaleId, voucherType])
+  @@map("emission_locks")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  // Solicitud enviada a ARCA, respuesta aún no procesada.
+  SENDING
+  AUTHORIZED
+  REJECTED
+  // Resultado incierto (timeout / error de red). Requiere conciliación antes de reintentar.
+  UNKNOWN
+}
+
+enum InvoiceConcept {
+  PRODUCTS
+  SERVICES
+  PRODUCTS_AND_SERVICES
+}
+
+model Invoice {
+  id                     String           @id @default(uuid()) @db.Uuid
+  companyId              String           @db.Uuid
+  pointOfSaleId          String           @db.Uuid
+  customerId             String?          @db.Uuid
+  // Código ARCA de comprobante (1 FA, 2 NDA, 3 NCA, 6 FB, 7 NDB, 8 NCB, 11 FC, 12 NDC, 13 NCC).
+  voucherType            Int
+  number                 Int?
+  status                 InvoiceStatus    @default(DRAFT)
+  concept                InvoiceConcept
+  issueDate              DateTime         @db.Date
+  serviceFrom            DateTime?        @db.Date
+  serviceTo              DateTime?        @db.Date
+  paymentDueDate         DateTime?        @db.Date
+  currency               String           @default("PES")
+  exchangeRate           Decimal          @default(1) @db.Decimal(18, 6)
+  // Snapshot del receptor al momento de emitir.
+  receiverName           String
+  receiverDocumentType   DocumentType
+  receiverDocumentNumber String
+  receiverVatCondition   VatCondition
+  receiverAddress        String?
+  // Importes (moneda del comprobante).
+  netTaxed               Decimal          @default(0) @db.Decimal(16, 2)
+  netUntaxed             Decimal          @default(0) @db.Decimal(16, 2)
+  exemptAmount           Decimal          @default(0) @db.Decimal(16, 2)
+  vatAmount              Decimal          @default(0) @db.Decimal(16, 2)
+  otherTaxesAmount       Decimal          @default(0) @db.Decimal(16, 2)
+  total                  Decimal          @default(0) @db.Decimal(16, 2)
+  notes                  String?
+  // Comprobante asociado (obligatorio para notas de crédito/débito).
+  associatedInvoiceId    String?          @db.Uuid
+  // Autorización ARCA
+  cae                    String?
+  caeDueDate             DateTime?        @db.Date
+  authorizedAt           DateTime?
+  arcaEnvironment        ArcaEnvironment?
+  arcaObservations       Json?
+  arcaErrors             Json?
+  emissionIdempotencyKey String?          @unique
+  pdfStorageKey          String?
+  createdById            String?          @db.Uuid
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  company           Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  pointOfSale       PointOfSale              @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  customer          Customer?                @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  associatedInvoice Invoice?                 @relation("InvoiceAssociation", fields: [associatedInvoiceId], references: [id], onDelete: Restrict)
+  associatedNotes   Invoice[]                @relation("InvoiceAssociation")
+  items             InvoiceItem[]
+  vatBreakdown      InvoiceVat[]
+  otherTaxes        InvoiceTax[]
+  attempts          InvoiceEmissionAttempt[]
+
+  // Numeración única por empresa, punto de venta, tipo y ambiente ARCA (homologación y producción
+  // tienen numeraciones independientes). number es NULL hasta asignarse.
+  @@unique([companyId, pointOfSaleId, voucherType, arcaEnvironment, number])
+  @@index([companyId, status])
+  @@index([companyId, issueDate])
+  @@index([companyId, customerId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id              String       @id @default(uuid()) @db.Uuid
+  invoiceId       String       @db.Uuid
+  productId       String?      @db.Uuid
+  position        Int
+  description     String
+  quantity        Decimal      @db.Decimal(16, 4)
+  unitPrice       Decimal      @db.Decimal(16, 4)
+  discountPercent Decimal      @default(0) @db.Decimal(5, 2)
+  vatTreatment    VatTreatment
+  vatRate         Decimal      @db.Decimal(5, 2)
+  netAmount       Decimal      @db.Decimal(16, 2)
+  vatAmount       Decimal      @db.Decimal(16, 2)
+  totalAmount     Decimal      @db.Decimal(16, 2)
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+// Desglose de IVA por alícuota (array Iva de WSFEv1).
+model InvoiceVat {
+  id         String  @id @default(uuid()) @db.Uuid
+  invoiceId  String  @db.Uuid
+  arcaId     Int
+  rate       Decimal @db.Decimal(5, 2)
+  baseAmount Decimal @db.Decimal(16, 2)
+  vatAmount  Decimal @db.Decimal(16, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_vat")
+}
+
+// Otros tributos (percepciones, impuestos internos, etc. — array Tributos de WSFEv1).
+model InvoiceTax {
+  id          String  @id @default(uuid()) @db.Uuid
+  invoiceId   String  @db.Uuid
+  arcaTaxId   Int
+  description String
+  baseAmount  Decimal @db.Decimal(16, 2)
+  rate        Decimal @db.Decimal(7, 4)
+  amount      Decimal @db.Decimal(16, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_taxes")
+}
+
+enum EmissionAttemptResult {
+  PENDING
+  AUTHORIZED
+  REJECTED
+  UNKNOWN
+  RECONCILED_AUTHORIZED
+  RECONCILED_NOT_FOUND
+}
+
+model InvoiceEmissionAttempt {
+  id             String                @id @default(uuid()) @db.Uuid
+  invoiceId      String                @db.Uuid
+  attemptNumber  Int
+  number         Int
+  idempotencyKey String
+  result         EmissionAttemptResult @default(PENDING)
+  message        String?
+  createdById    String?               @db.Uuid
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, attemptNumber])
+  @@map("invoice_emission_attempts")
+}
