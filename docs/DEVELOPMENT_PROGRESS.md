@@ -6,9 +6,9 @@
 |---|---|---|
 | `TEST` | Todo el desarrollo (código, pruebas, docs) | Se trabaja solo acá |
 | `DEVELOP` | Versión integrada y verificada (merge desde TEST tras pasar todas las verificaciones) | No se desarrolla directamente |
-| `MAIN` | Únicamente `README.md` con la descripción del producto | Nunca recibe merges de TEST/DEVELOP |
+| `main` (local `MAIN`) | Únicamente `README.md` con la descripción del producto | Nunca recibe merges de TEST/DEVELOP |
 
-Las ramas existen localmente. El remoto `origin` solo tiene `main` (commit inicial); publicar las tres ramas es una acción pendiente del responsable (ver README de TEST).
+Las tres ramas están publicadas en `origin` (GitHub): `main`, `TEST` y `DEVELOP`. La rama local `MAIN` sigue a `origin/main`.
 
 ## Registro de avances
 
@@ -41,7 +41,5 @@ Las ramas existen localmente. El remoto `origin` solo tiene `main` (commit inici
 
 1. Prueba de emisión con CAE real en homologación (requiere certificado; procedimiento en ARCA_INTEGRATION.md §9).
 2. WSFEX (Factura E).
-3. Requisitos del SPEC funcional completo (documento no entregado).
-4. Publicar ramas `TEST`, `DEVELOP` y `MAIN` en el remoto.
 
 **Integración en DEVELOP:** realizada luego de verificar tipos, lint, pruebas unitarias, de integración, Vitest, E2E, builds y construcción de imágenes Docker.

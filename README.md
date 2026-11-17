@@ -2,7 +2,7 @@
 
 Plataforma de gestión comercial y **facturación electrónica para Argentina** con integración real con **ARCA** (WSAA / WSFEv1). Funciona como **SaaS multiempresa** o como **instalación privada**, con la misma base de código.
 
-> Rama de desarrollo/integración. La descripción funcional del producto está en la rama `MAIN`. Documentación técnica en [`docs/`](docs).
+> Rama de desarrollo/integración. La descripción funcional del producto está en la rama `main`. Documentación técnica en [`docs/`](docs).
 
 ## Tecnologías
 
@@ -76,4 +76,4 @@ Toda empresa comienza en **homologación**. Para emitir con CAE hay que cargar u
 
 ## Flujo de ramas
 
-`TEST` (desarrollo) → verificación completa → `DEVELOP` (integrada). `MAIN` contiene solo el README del producto.
+`TEST` (desarrollo) → verificación completa → `DEVELOP` (integrada). `main` contiene solo el README del producto.

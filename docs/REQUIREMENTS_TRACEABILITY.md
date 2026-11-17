@@ -1,7 +1,7 @@
 # Matriz de trazabilidad de requisitos
 
 **Fuente de requisitos:** `Plan_inicio_tecnico_facturacion.pdf` (v1.0, noviembre 2026; en adelante "SPEC") y el prompt maestro de desarrollo.
-El SPEC menciona un "SPEC funcional completo" adicional que **no fue entregado**. Esta matriz cubre todos los requisitos de los documentos disponibles; los requisitos de ese documento faltante deberán incorporarse cuando esté disponible (ver `DECISIONS.md`, D-01).
+El responsable confirmó que este PDF es el SPEC completo del proyecto. La matriz cubre todos sus requisitos y los del prompt maestro (ver `DECISIONS.md`, D-01).
 
 Estados: **Pendiente** · **En desarrollo** · **Implementado** (código listo, sin prueba automatizada completa) · **Probado** (con pruebas automatizadas que pasan) · **Integrado en DEVELOP**.
 
